@@ -1193,7 +1193,7 @@ void scr_child_stream_release_v(void *p) { scr_child_stream_release((ScrChildStr
 
 /* True while the stream has a consumer and can still deliver. */
 static bool scr_child_stream_watching(const ScrChildStream *s) {
-  return !s->eof && (s->is_input || (s->h != NULL && s->n_data > 0));
+  return !s->eof && s->h != NULL && s->n_data > 0;
 }
 
 /* A fresh piped stream over the pipe's read end, registered with the
@@ -1449,7 +1449,6 @@ ScrChild *scr_spawn_opts(ScrStr *cmd, ScrArr *args, double in_mode,
   if ((int)in_mode == 3) {
     c->in_stream = scr_child_stream_new(in_parent);
     c->in_stream->is_input = true;
-    if (!c->in_stream->eof) scr_child_streams_watching++;
   }
   if (out_m == 3) c->out_stream = scr_child_stream_new(out_parent);
   if (err_m == 3) c->err_stream = scr_child_stream_new(err_parent);
@@ -1545,6 +1544,9 @@ void scr_child_unref(ScrChild *c) {
 }
 
 bool scr_children_reffed_pending(void) {
+  for (ScrChildStream *s = scr_child_streams; s; s = s->next) {
+    if (s->is_input && !s->eof && (s->input_len > s->input_at || s->ending || s->destroyed || s->input_error)) return true;
+  }
   return scr_children_reffed_n > 0 || scr_child_streams_watching > 0;
 }
 
@@ -1652,6 +1654,9 @@ void scr_child_err_thunk_error(ScrClosure *cb, ScrStr *msg) {
 /* ── the loop's half (called from scr_async.c) ───────────────────────── */
 
 bool scr_children_pending(void) {
+  for (ScrChildStream *s = scr_child_streams; s; s = s->next) {
+    if (s->is_input && !s->eof && (s->input_len > s->input_at || s->ending || s->destroyed || s->input_error)) return true;
+  }
   return scr_children != NULL || scr_child_streams_watching > 0;
 }
 
@@ -2903,7 +2908,7 @@ static void scr_child_stream_dearm(ScrChildStream *s);
 
 /* True while the stream has a consumer and can still deliver. */
 static bool scr_child_stream_watching(const ScrChildStream *s) {
-  return !s->eof && (s->is_input || (s->fd >= 0 && s->n_data > 0));
+  return !s->eof && s->fd >= 0 && s->n_data > 0;
 }
 
 /* A fresh piped stream over the pipe's read end (nonblocking, cloexec);
@@ -3286,7 +3291,6 @@ ScrChild *scr_spawn_opts(ScrStr *cmd, ScrArr *args, double in_mode,
   if ((int)in_mode == 3) {
     c->in_stream = scr_child_stream_new(in_pipe[1]);
     c->in_stream->is_input = true;
-    if (!c->in_stream->eof) scr_child_streams_watching++;
   }
   if ((int)out_mode == 3) c->out_stream = scr_child_stream_new(out_pipe[0]);
   if ((int)err_mode == 3) c->err_stream = scr_child_stream_new(err_pipe[0]);
@@ -3399,6 +3403,9 @@ void scr_child_unref(ScrChild *c) {
  * it may outlive the child's own settle when a grandchild holds the
  * write end). */
 bool scr_children_reffed_pending(void) {
+  for (ScrChildStream *s = scr_child_streams; s; s = s->next) {
+    if (s->is_input && !s->eof && (s->input_len > s->input_at || s->ending || s->destroyed || s->input_error)) return true;
+  }
   return scr_children_reffed_n > 0 || scr_child_streams_watching > 0;
 }
 
@@ -3538,6 +3545,9 @@ void scr_child_err_thunk_error(ScrClosure *cb, ScrStr *msg) {
 /* ── the loop's half (called from scr_async.c) ───────────────────────── */
 
 bool scr_children_pending(void) {
+  for (ScrChildStream *s = scr_child_streams; s; s = s->next) {
+    if (s->is_input && !s->eof && (s->input_len > s->input_at || s->ending || s->destroyed || s->input_error)) return true;
+  }
   return scr_children != NULL || scr_child_streams_watching > 0;
 }
 
@@ -3680,7 +3690,6 @@ static void scr_child_input_error(ScrChildStream *s, const char *code) {
     s->eof = false;
     s->next = scr_child_streams;
     scr_child_streams = scr_child_stream_retain(s);
-    scr_child_streams_watching++;
   }
 }
 static bool scr_child_input_append(ScrChildStream *s, const char *data, size_t len) {
