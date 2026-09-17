@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 const root = dirname(dirname(fileURLToPath(import.meta.url))); const repo = fileURLToPath(new URL("../../..", import.meta.url));
@@ -29,11 +29,13 @@ function resolveGenerator() {
 // clang/ninja defaults, so it selects the matching CRT, SDK, manifest tools,
 // and current MSVC standard-library implementation.
 const generator = resolveGenerator();
+const isMultiConfig = generator.startsWith("Visual Studio") || generator === "Ninja Multi-Config" || generator === "Xcode";
 const cmakeArgs = [
   "-S", join(repo, "native/llvm-codegen"),
   "-B", build,
   "-G", generator,
   ...(generator.startsWith("Visual Studio") ? ["-A", "x64"] : []),
+  ...(!isMultiConfig ? ["-DCMAKE_BUILD_TYPE=Release"] : []),
   `-DLLVM_DIR=${process.env.LLVM_DIR ?? "C:/Program Files/LLVM/lib/cmake/llvm"}`,
   `-DSCRIPTC_PACKAGE_VERSION=${manifest.version}`,
   "-DSCRIPTC_DEFAULT_TARGET=x86_64-pc-windows-msvc",
@@ -42,4 +44,14 @@ const cmakeArgs = [
   "-DSCRIPTC_ALLOWED_TARGETS=x86_64-pc-windows-msvc,wasm32-unknown-wasi",
 ];
 execFileSync("cmake", cmakeArgs, { stdio: "inherit" });
-execFileSync("cmake", ["--build", build, "--config", "Release", "--target", "scriptc-llvm-codegen"], { stdio: "inherit" }); mkdirSync(join(root, "bin"), { recursive: true }); copyFileSync(join(build, "Release", "scriptc-llvm-codegen.exe"), join(root, "bin", "scriptc-llvm-codegen.exe"));
+const buildArgs = ["--build", build, ...(isMultiConfig ? ["--config", "Release"] : []), "--target", "scriptc-llvm-codegen"];
+execFileSync("cmake", buildArgs, { stdio: "inherit" });
+const candidateOutputs = [
+  join(build, "Release", "scriptc-llvm-codegen.exe"),
+  join(build, "scriptc-llvm-codegen.exe"),
+  join(build, "RelWithDebInfo", "scriptc-llvm-codegen.exe"),
+];
+const built = candidateOutputs.find(existsSync);
+if (!built) throw new Error(`Could not find built scriptc-llvm-codegen.exe in ${build}`);
+mkdirSync(join(root, "bin"), { recursive: true });
+copyFileSync(built, join(root, "bin", "scriptc-llvm-codegen.exe"));
